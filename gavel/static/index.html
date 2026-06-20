@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gavel</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 13px/1.5 system-ui, sans-serif; background: #0f0f0f; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* ── header ── */
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; flex-shrink: 0; }
+  header h1 { font-size: 15px; font-weight: 700; letter-spacing: .5px; color: #fff; }
+  nav { display: flex; gap: 4px; margin-left: 20px; }
+  nav button { background: none; border: none; color: #888; cursor: pointer; padding: 4px 12px; border-radius: 4px; font-size: 12px; }
+  nav button.active { background: #2a2a2a; color: #fff; }
+  nav button:hover:not(.active) { color: #ccc; }
+
+  /* ── main layout ── */
+  .workspace { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── left panel ── */
+  .left { width: 340px; flex-shrink: 0; border-right: 1px solid #2a2a2a; display: flex; flex-direction: column; overflow-y: auto; }
+  .section { padding: 14px 16px; border-bottom: 1px solid #1e1e1e; }
+  .section-title { font-size: 10px; font-weight: 600; letter-spacing: .8px; color: #555; text-transform: uppercase; margin-bottom: 10px; }
+  label { display: block; font-size: 11px; color: #888; margin-bottom: 3px; margin-top: 8px; }
+  label:first-of-type { margin-top: 0; }
+  input, select, textarea { width: 100%; background: #1a1a1a; border: 1px solid #2e2e2e; color: #e0e0e0; border-radius: 5px; padding: 5px 8px; font-size: 12px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #555; }
+  select option { background: #1a1a1a; }
+  textarea { resize: vertical; font-family: monospace; }
+
+  /* ── cache banner ── */
+  #cache-banner { display: none; background: #0d2e14; border: 1px solid #1a5c2a; border-radius: 6px; padding: 10px 12px; margin-top: 8px; }
+  #cache-banner.show { display: block; }
+  #cache-banner .banner-title { font-size: 11px; font-weight: 600; color: #4caf50; margin-bottom: 4px; }
+  #cache-banner .banner-meta { font-size: 11px; color: #aaa; }
+  .toggle-row { display: flex; gap: 6px; margin-top: 8px; }
+  .toggle-btn { flex: 1; padding: 5px; font-size: 11px; border: 1px solid #2e2e2e; background: #1a1a1a; color: #888; border-radius: 4px; cursor: pointer; text-align: center; }
+  .toggle-btn.active { background: #1a3a24; border-color: #4caf50; color: #4caf50; font-weight: 600; }
+  #grader-server-widget { display: none; margin-top: 8px; padding: 8px; background: #111; border-radius: 5px; border: 1px solid #222; }
+  #grader-server-widget.show { display: block; }
+  .server-status { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #555; flex-shrink: 0; }
+  .dot.green { background: #4caf50; }
+  .dot.yellow { background: #f59e0b; animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .server-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .server-actions button { flex: 1; font-size: 11px; padding: 4px 8px; border-radius: 4px; border: 1px solid #333; background: #1a1a1a; color: #ccc; cursor: pointer; }
+  .server-actions button:hover { background: #222; }
+
+  /* ── launch button ── */
+  #launch-btn { display: block; width: 100%; margin: 14px 16px; width: calc(100% - 32px); padding: 9px; background: #1a3aff; color: #fff; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  #launch-btn:hover { background: #2a4aff; }
+  #launch-btn:disabled { background: #333; color: #666; cursor: default; }
+
+  /* ── right panel ── */
+  .right { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .tab-bar { display: flex; padding: 0 16px; background: #161616; border-bottom: 1px solid #2a2a2a; flex-shrink: 0; }
+  .tab { padding: 9px 14px; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent; color: #666; }
+  .tab.active { color: #fff; border-bottom-color: #1a3aff; }
+  .tab-content { flex: 1; overflow: hidden; display: none; }
+  .tab-content.active { display: flex; flex-direction: column; }
+
+  /* ── prompt tab ── */
+  #prompt-panel { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 16px; gap: 12px; }
+  .prompt-row { display: flex; flex-direction: column; gap: 5px; }
+  .prompt-row label { font-size: 11px; color: #888; }
+  #task-desc { height: 90px; }
+  #system-prompt { height: 240px; }
+  .prompt-actions { display: flex; gap: 8px; align-items: center; }
+  .prompt-actions input { flex: 1; }
+  #gen-btn { flex-shrink: 0; padding: 6px 14px; background: #1a3aff; border: none; color: #fff; border-radius: 5px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  #gen-btn:hover { background: #2a4aff; }
+  #gen-btn:disabled { background: #333; color: #666; cursor: default; }
+  #gen-status { font-size: 11px; color: #888; min-height: 16px; }
+  .max-score-row { display: flex; align-items: center; gap: 10px; }
+  .max-score-row label { margin: 0; flex-shrink: 0; }
+  .max-score-row input { width: 70px; flex-shrink: 0; }
+
+  /* ── logs tab ── */
+  #logs-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .logs-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #141414; border-bottom: 1px solid #1e1e1e; flex-shrink: 0; }
+  .logs-toolbar .dot { flex-shrink: 0; }
+  #log-status { font-size: 11px; color: #666; flex: 1; }
+  .logs-toolbar button { font-size: 11px; padding: 3px 10px; border: 1px solid #333; background: #1a1a1a; color: #aaa; border-radius: 4px; cursor: pointer; }
+  .logs-toolbar button:hover { background: #222; }
+  #log-out { flex: 1; overflow-y: auto; padding: 12px 16px; font: 12px/1.6 monospace; white-space: pre-wrap; background: #0a0a0a; color: #ccc; }
+
+  /* ── cache tab ── */
+  #cache-panel { flex: 1; overflow-y: auto; padding: 16px; }
+  .cache-entry { background: #141414; border: 1px solid #222; border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+  .cache-entry h3 { font-size: 12px; font-weight: 600; color: #4caf50; margin-bottom: 6px; }
+  .cache-entry p { font-size: 11px; color: #888; line-height: 1.8; }
+
+  /* ── runs tab ── */
+  #runs-panel { flex: 1; overflow-y: auto; padding: 16px; }
+  .run-entry { background: #141414; border: 1px solid #222; border-radius: 6px; padding: 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .run-entry:hover { border-color: #333; }
+  .run-entry .tag { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; }
+  .tag.running { background: #1a3a1a; color: #4caf50; }
+  .tag.done { background: #1a1a3a; color: #5555ff; }
+  .run-entry .run-meta { flex: 1; font-size: 11px; color: #888; }
+  .kill-btn { font-size: 11px; padding: 3px 8px; border: 1px solid #333; background: #1a0a0a; color: #ff5555; border-radius: 4px; cursor: pointer; }
+  .kill-btn:hover { background: #2a0a0a; }
+
+  .empty { color: #444; font-size: 12px; padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚖ Gavel</h1>
+  <nav>
+    <button class="active" onclick="showMainTab('launch')">Launch</button>
+    <button onclick="showMainTab('cache')">Cache</button>
+    <button onclick="showMainTab('runs')">Runs</button>
+  </nav>
+</header>
+
+<div class="workspace">
+  <!-- ── LEFT PANEL ── -->
+  <div class="left" id="left-panel">
+    <div class="section">
+      <div class="section-title">Run Type</div>
+      <select id="run-type" onchange="onRunTypeChange()">
+        <option value="grpo">GRPO Training</option>
+        <option value="sft">SFT (distill grader)</option>
+        <option value="audit">Audit grader</option>
+      </select>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Dataset & Grader</div>
+      <label>Dataset ID</label>
+      <input id="dataset-id" value="BytedTsinghua-SIA/DAPO-Math-17k" oninput="debounceDatasetLookup()">
+      <label>Grader base model</label>
+      <input id="grader-base" value="Qwen/Qwen2.5-3B-Instruct">
+
+      <div id="cache-banner">
+        <div class="banner-title">✓ Cached grader found</div>
+        <div id="banner-meta" class="banner-meta">—</div>
+        <div class="toggle-row">
+          <div class="toggle-btn active" id="btn-cached" onclick="setJudgeMode('cached')">Distilled grader</div>
+          <div class="toggle-btn" id="btn-frontier" onclick="setJudgeMode('frontier')">Frontier judge</div>
+        </div>
+        <div id="grader-server-widget">
+          <div class="server-status">
+            <div class="dot" id="server-dot"></div>
+            <span id="server-status-text">Stopped</span>
+          </div>
+          <div class="server-actions">
+            <button onclick="startGraderServer()">Start server</button>
+            <button onclick="stopGraderServer()">Stop</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Hardware</div>
+      <label>GPU IDs (CUDA_VISIBLE_DEVICES)</label>
+      <input id="gpus" value="0,1,2,3">
+      <label>Num GPUs (for GRPO)</label>
+      <input id="num-gpus" type="number" value="4" min="1">
+    </div>
+
+    <div class="section" id="grpo-fields">
+      <div class="section-title">GRPO Config</div>
+      <label>Policy model</label>
+      <input id="policy-model" value="Qwen/Qwen3-4B">
+      <label>Judge URL (leave blank for cached grader)</label>
+      <input id="judge-url" value="">
+      <label>Judge API key</label>
+      <input id="judge-api-key" type="password" value="">
+      <label>Judge model name</label>
+      <input id="judge-model" value="">
+      <label>Batch size</label>
+      <input id="batch-size" type="number" value="2" min="1">
+      <label>Grad accum</label>
+      <input id="grad-accum" type="number" value="2" min="1">
+      <label>Num generations</label>
+      <input id="num-generations" type="number" value="4" min="1">
+      <label>Max steps</label>
+      <input id="max-steps" type="number" value="200" min="1">
+      <label>Learning rate</label>
+      <input id="lr" value="1e-5">
+      <label>N examples</label>
+      <input id="n-examples" type="number" value="3000" min="1">
+    </div>
+
+    <div class="section" id="sft-fields" style="display:none">
+      <div class="section-title">SFT Config</div>
+      <label>Adapter output path</label>
+      <input id="sft-out" value="runs/grader-sft">
+      <label>Epochs</label>
+      <input id="epochs" type="number" value="3" min="1">
+    </div>
+
+    <div class="section" id="audit-fields" style="display:none">
+      <div class="section-title">Audit Config</div>
+      <label>Adapter path</label>
+      <input id="audit-sft-out" value="runs/grader-sft">
+    </div>
+
+    <button id="launch-btn" onclick="launchRun()">Launch</button>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div class="right">
+    <div class="tab-bar">
+      <div class="tab active" id="tab-prompt" onclick="showRightTab('prompt')">Prompt</div>
+      <div class="tab" id="tab-logs" onclick="showRightTab('logs')">Logs</div>
+    </div>
+
+    <!-- PROMPT TAB -->
+    <div class="tab-content active" id="right-prompt">
+      <div id="prompt-panel">
+        <div class="prompt-row">
+          <label>Describe the task to grade (DeepSeek will generate the rubric)</label>
+          <textarea id="task-desc" placeholder="e.g. Solving high-school math competition problems with step-by-step reasoning…"></textarea>
+        </div>
+
+        <div class="prompt-actions">
+          <input id="deepseek-key" type="password" placeholder="DeepSeek API key">
+          <button id="gen-btn" onclick="generateRubric()">Generate rubric</button>
+        </div>
+        <div id="gen-status"></div>
+
+        <div class="max-score-row">
+          <label>Max score</label>
+          <input id="max-score" type="number" value="1" min="1" step="1">
+        </div>
+
+        <div class="prompt-row">
+          <label>Judge system prompt (editable — used when launching GRPO)</label>
+          <textarea id="system-prompt" placeholder="Generate a rubric above, or paste a system prompt here…"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGS TAB -->
+    <div class="tab-content" id="right-logs">
+      <div id="logs-panel">
+        <div class="logs-toolbar">
+          <div class="dot" id="run-dot"></div>
+          <span id="log-status">No run yet</span>
+          <button onclick="killRun()">Kill</button>
+          <button onclick="clearLogs()">Clear</button>
+        </div>
+        <div id="log-out"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CACHE TAB (replaces workspace) -->
+<div id="cache-page" style="display:none; flex:1; overflow-y:auto; padding:16px;">
+  <div id="cache-panel"></div>
+</div>
+
+<!-- RUNS TAB -->
+<div id="runs-page" style="display:none; flex:1; overflow-y:auto; padding:16px;">
+  <div id="runs-panel"></div>
+</div>
+
+<script>
+// ── state ──────────────────────────────────────────────────────────────────
+let activeRunId = null;
+let evtSource = null;
+let judgeMode = 'frontier'; // 'cached' | 'frontier'
+let cachedEntry = null;
+let graderPollTimer = null;
+let datasetDebounce = null;
+
+// ── nav ────────────────────────────────────────────────────────────────────
+function showMainTab(tab) {
+  document.querySelectorAll('nav button').forEach((b, i) => {
+    b.classList.toggle('active', ['launch', 'cache', 'runs'][i] === tab);
+  });
+  document.querySelector('.workspace').style.display = tab === 'launch' ? 'flex' : 'none';
+  document.getElementById('cache-page').style.display = tab === 'cache' ? 'flex' : 'none';
+  document.getElementById('runs-page').style.display = tab === 'runs' ? 'flex' : 'none';
+  if (tab === 'cache') loadCachePage();
+  if (tab === 'runs') loadRunsPage();
+}
+
+function showRightTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + tab));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'right-' + tab));
+}
+
+// ── run type ───────────────────────────────────────────────────────────────
+function onRunTypeChange() {
+  const t = document.getElementById('run-type').value;
+  document.getElementById('grpo-fields').style.display = t === 'grpo' ? '' : 'none';
+  document.getElementById('sft-fields').style.display = t === 'sft' ? '' : 'none';
+  document.getElementById('audit-fields').style.display = t === 'audit' ? '' : 'none';
+}
+
+// ── dataset lookup ─────────────────────────────────────────────────────────
+function debounceDatasetLookup() {
+  clearTimeout(datasetDebounce);
+  datasetDebounce = setTimeout(lookupDataset, 600);
+}
+
+async function lookupDataset() {
+  const did = document.getElementById('dataset-id').value.trim();
+  if (!did) { hideCacheBanner(); return; }
+  try {
+    const res = await fetch('/api/cache/lookup?dataset_id=' + encodeURIComponent(did));
+    const entries = await res.json();
+    if (entries && entries.length > 0) {
+      cachedEntry = entries[0];
+      showCacheBanner(cachedEntry);
+    } else {
+      hideCacheBanner();
+    }
+  } catch { hideCacheBanner(); }
+}
+
+function auditPearson(entry) {
+  if (!entry || !entry.audit_report) return null;
+  const a = entry.audit_report;
+  if (a.fidelity && a.fidelity.pearson != null) return a.fidelity.pearson;
+  if (a.context && a.context.grader_vs_teacher_pearson != null) return a.context.grader_vs_teacher_pearson;
+  return null;
+}
+
+function showCacheBanner(entry) {
+  const banner = document.getElementById('cache-banner');
+  const p = auditPearson(entry);
+  const traces = entry.trace_count ?? '?';
+  document.getElementById('banner-meta').textContent =
+    `Pearson ${p != null ? p.toFixed(3) : '?'} · ${traces} traces · ${entry.grader_base}`;
+  banner.classList.add('show');
+  setJudgeMode('cached');
+}
+
+function hideCacheBanner() {
+  document.getElementById('cache-banner').classList.remove('show');
+  cachedEntry = null;
+  setJudgeMode('frontier');
+}
+
+// ── judge mode toggle ──────────────────────────────────────────────────────
+function setJudgeMode(mode) {
+  judgeMode = mode;
+  document.getElementById('btn-cached').classList.toggle('active', mode === 'cached');
+  document.getElementById('btn-frontier').classList.toggle('active', mode === 'frontier');
+  const widget = document.getElementById('grader-server-widget');
+  if (mode === 'cached') {
+    widget.classList.add('show');
+    startGraderPoll();
+  } else {
+    widget.classList.remove('show');
+    stopGraderPoll();
+  }
+}
+
+// ── grader server ──────────────────────────────────────────────────────────
+async function startGraderServer() {
+  const did = document.getElementById('dataset-id').value.trim();
+  const base = document.getElementById('grader-base').value.trim();
+  const gpu = document.getElementById('gpus').value.split(',')[0].trim();
+  await fetch(`/api/grader-server/start?dataset_id=${encodeURIComponent(did)}&grader_base=${encodeURIComponent(base)}&gpu=${gpu}`, { method: 'POST' });
+  pollGraderStatus();
+}
+
+async function stopGraderServer() {
+  await fetch('/api/grader-server', { method: 'DELETE' });
+  pollGraderStatus();
+}
+
+async function pollGraderStatus() {
+  const res = await fetch('/api/grader-server/status');
+  const data = await res.json();
+  const dot = document.getElementById('server-dot');
+  const txt = document.getElementById('server-status-text');
+  if (data.status === 'running') {
+    dot.className = 'dot green';
+    txt.textContent = `Running :${data.port}`;
+    // if using cached grader, auto-fill judge URL
+    if (judgeMode === 'cached') {
+      document.getElementById('judge-url').value = `http://localhost:${data.port}/v1`;
+      document.getElementById('judge-model').value = 'grader';
+    }
+  } else {
+    dot.className = 'dot';
+    txt.textContent = 'Stopped';
+  }
+}
+
+function startGraderPoll() {
+  if (graderPollTimer) return;
+  pollGraderStatus();
+  graderPollTimer = setInterval(pollGraderStatus, 3000);
+}
+
+function stopGraderPoll() {
+  clearInterval(graderPollTimer);
+  graderPollTimer = null;
+}
+
+// ── rubric generation ──────────────────────────────────────────────────────
+async function generateRubric() {
+  const desc = document.getElementById('task-desc').value.trim();
+  const key = document.getElementById('deepseek-key').value.trim();
+  if (!desc) { setGenStatus('Enter a task description.'); return; }
+  if (!key) { setGenStatus('Enter your DeepSeek API key.'); return; }
+
+  const btn = document.getElementById('gen-btn');
+  btn.disabled = true;
+  setGenStatus('Generating…');
+  try {
+    const res = await fetch('/api/generate-rubric', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: desc, api_key: key }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    document.getElementById('system-prompt').value = data.rubric;
+    document.getElementById('max-score').value = data.max_score;
+    setGenStatus('✓ Rubric generated');
+  } catch (e) {
+    setGenStatus('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function setGenStatus(msg) {
+  document.getElementById('gen-status').textContent = msg;
+}
+
+// ── launch ─────────────────────────────────────────────────────────────────
+async function launchRun() {
+  const runType = document.getElementById('run-type').value;
+  const sysPrompt = document.getElementById('system-prompt').value.trim();
+  const maxScore = parseFloat(document.getElementById('max-score').value) || 1;
+
+  const body = {
+    run_type: runType,
+    dataset_id: document.getElementById('dataset-id').value.trim(),
+    grader_base: document.getElementById('grader-base').value.trim(),
+    gpus: document.getElementById('gpus').value.trim(),
+    num_gpus: parseInt(document.getElementById('num-gpus').value) || 4,
+    judge_system_prompt: sysPrompt,
+    judge_max_score: maxScore,
+  };
+
+  if (runType === 'grpo') {
+    body.policy_model = document.getElementById('policy-model').value.trim();
+    body.judge_url = document.getElementById('judge-url').value.trim();
+    body.judge_api_key = document.getElementById('judge-api-key').value.trim();
+    body.judge_model = document.getElementById('judge-model').value.trim();
+    body.batch_size = parseInt(document.getElementById('batch-size').value);
+    body.grad_accum = parseInt(document.getElementById('grad-accum').value);
+    body.num_generations = parseInt(document.getElementById('num-generations').value);
+    body.max_steps = parseInt(document.getElementById('max-steps').value);
+    body.lr = parseFloat(document.getElementById('lr').value);
+    body.n_examples = parseInt(document.getElementById('n-examples').value);
+  } else if (runType === 'sft') {
+    body.sft_out = document.getElementById('sft-out').value.trim();
+    body.epochs = parseInt(document.getElementById('epochs').value);
+  } else if (runType === 'audit') {
+    body.sft_out = document.getElementById('audit-sft-out').value.trim();
+  }
+
+  const res = await fetch('/api/launch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) { alert('Launch failed: ' + JSON.stringify(data)); return; }
+
+  activeRunId = data.run_id;
+  clearLogs();
+  showRightTab('logs');
+  document.getElementById('log-status').textContent = `Run ${activeRunId} — ${runType}`;
+  document.getElementById('run-dot').className = 'dot yellow';
+  startStream(activeRunId);
+}
+
+// ── log streaming ──────────────────────────────────────────────────────────
+function startStream(runId) {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource(`/api/runs/${runId}/stream`);
+  const out = document.getElementById('log-out');
+  evtSource.onmessage = e => {
+    out.textContent += JSON.parse(e.data) + '\n';
+    out.scrollTop = out.scrollHeight;
+  };
+  evtSource.onerror = () => {
+    document.getElementById('run-dot').className = 'dot';
+    evtSource.close();
+  };
+}
+
+async function killRun() {
+  if (!activeRunId) return;
+  await fetch(`/api/runs/${activeRunId}`, { method: 'DELETE' });
+  document.getElementById('run-dot').className = 'dot';
+}
+
+function clearLogs() {
+  document.getElementById('log-out').textContent = '';
+}
+
+// ── cache page ─────────────────────────────────────────────────────────────
+async function loadCachePage() {
+  const panel = document.getElementById('cache-panel');
+  panel.innerHTML = '<div class="empty">Loading…</div>';
+  const res = await fetch('/api/cache');
+  const entries = await res.json();
+  if (!entries.length) { panel.innerHTML = '<div class="empty">No cached graders yet.</div>'; return; }
+  panel.innerHTML = entries.map(e => {
+    const p = auditPearson(e);
+    return `<div class="cache-entry">
+      <h3>${e.dataset_id || '?'}</h3>
+      <p>
+        Base: ${e.grader_base || '?'}<br>
+        Pearson: ${p != null ? p.toFixed(3) : '?'}<br>
+        Traces: ${e.trace_count ?? '?'}<br>
+        Adapter: ${e.adapter_path || '?'}
+      </p>
+    </div>`;
+  }).join('');
+}
+
+// ── runs page ──────────────────────────────────────────────────────────────
+async function loadRunsPage() {
+  const panel = document.getElementById('runs-panel');
+  panel.innerHTML = '<div class="empty">Loading…</div>';
+  const res = await fetch('/api/runs');
+  const runs = await res.json();
+  if (!runs.length) { panel.innerHTML = '<div class="empty">No runs yet.</div>'; return; }
+  panel.innerHTML = runs.map(r => `
+    <div class="run-entry" onclick="viewRun('${r.run_id}')">
+      <span class="tag ${r.status}">${r.status}</span>
+      <div class="run-meta">${r.run_id} — ${r.run_type} · ${r.lines} lines</div>
+      ${r.status === 'running' ? `<button class="kill-btn" onclick="event.stopPropagation(); killRunById('${r.run_id}')">Kill</button>` : ''}
+    </div>`).join('');
+}
+
+async function viewRun(runId) {
+  activeRunId = runId;
+  showMainTab('launch');
+  clearLogs();
+  showRightTab('logs');
+  document.getElementById('log-status').textContent = `Run ${runId}`;
+  startStream(runId);
+}
+
+async function killRunById(runId) {
+  await fetch(`/api/runs/${runId}`, { method: 'DELETE' });
+  loadRunsPage();
+}
+
+// ── init ───────────────────────────────────────────────────────────────────
+lookupDataset();
+onRunTypeChange();
+</script>
+</body>
+</html>

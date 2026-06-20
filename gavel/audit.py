@@ -58,9 +58,9 @@ class LocalGrader:
         prompts = [
             self.tok.apply_chat_template(
                 build_grader_messages(
-                    problem=r.get("problem", "N/A"),
+                    problem=r.get("problem", r.get("question", "N/A")),
                     reference_answer=r["ground_truth"],
-                    candidate_solution=r["solution"],
+                    candidate_solution=r.get("solution", r.get("completion", "")),
                 ),
                 tokenize=False,
                 add_generation_prompt=True,
@@ -124,8 +124,8 @@ def main():
         grader_scores.extend(parse_score(t) for t in grader.grade_batch(batch))
         print(f"[audit] graded {min(i + batch_size, len(rows))}/{len(rows)}")
 
-    teacher = [float(r.get("score", 0.0)) for r in rows]                 # 0-9, logged judge
-    mech = [is_correct(r["solution"], r["ground_truth"]) for r in rows]  # 0/1, independent
+    teacher = [float(r.get("score", r.get("judge_score", 0.0))) for r in rows]                 # 0-9, logged judge
+    mech = [is_correct(r.get("solution", r.get("completion", "")), r["ground_truth"]) for r in rows]  # 0/1, independent
 
     report = {
         "n": len(rows),

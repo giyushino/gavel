@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
 
-JUDGE_SYSTEM = (
+_DEFAULT_JUDGE_SYSTEM = (
     "You are a strict grader for math problems. You are given a problem, the "
     "reference final answer, and a student's full solution. Decide whether the "
     "student's FINAL answer matches the reference answer (allow equivalent forms, "
@@ -27,6 +27,12 @@ JUDGE_SYSTEM = (
     "correct and 0.0 if it is wrong."
 )
 
+# Set JUDGE_SYSTEM_PROMPT at launch time to use a custom generated rubric.
+JUDGE_SYSTEM = os.environ.get("JUDGE_SYSTEM_PROMPT", _DEFAULT_JUDGE_SYSTEM)
+
+# When using a multi-dimension rubric (e.g. max 9), set this to normalize to [0, 1].
+_JUDGE_MAX_SCORE = float(os.environ.get("JUDGE_MAX_SCORE", "1"))
+
 JUDGE_USER_TMPL = (
     "Problem:\n{question}\n\n"
     "Reference answer:\n{ground_truth}\n\n"
@@ -34,16 +40,22 @@ JUDGE_USER_TMPL = (
     "Grade it."
 )
 
+_XML_TOTAL_RE = re.compile(r"<total>\s*(\d+)\s*</total>")
 _SCORE_RE = re.compile(r"SCORE:\s*([0-9]*\.?[0-9]+)")
 
 
 def parse_score(text: str) -> float:
-    """Pull the trailing `SCORE: <x>` off a judge trace, clamped to [0, 1]."""
+    """Extract score from XML <total> or fallback SCORE: format, normalize to [0, 1]."""
+    # prefer XML format
+    m = _XML_TOTAL_RE.search(text or "")
+    if m:
+        return max(0.0, min(1.0, float(m.group(1)) / _JUDGE_MAX_SCORE))
+    # fallback: plain SCORE: <x>
     matches = _SCORE_RE.findall(text or "")
     if not matches:
         return 0.0
     try:
-        return max(0.0, min(1.0, float(matches[-1])))
+        return max(0.0, min(1.0, float(matches[-1]) / _JUDGE_MAX_SCORE))
     except ValueError:
         return 0.0
 

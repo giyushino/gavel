@@ -40,7 +40,7 @@ def load_traces(path: str, drop_errors: bool = True, dedup: bool = True):
                 continue
 
             if dedup:
-                key = (r.get("ground_truth", ""), r.get("solution", ""))
+                key = (r.get("ground_truth", ""), r.get("solution", r.get("completion", "")))
                 if key in seen:
                     continue
                 seen.add(key)
@@ -70,9 +70,9 @@ def to_example(r: dict) -> dict:
     """Convert one trace row into the prompt/completion format TRL SFTTrainer expects."""
     return {
         "prompt": build_grader_messages(
-            problem=r.get("problem", "N/A"),
+            problem=r.get("problem", r.get("question", "N/A")),
             reference_answer=r["ground_truth"],
-            candidate_solution=r["solution"],
+            candidate_solution=r.get("solution", r.get("completion", "")),
         ),
         "completion": [{"role": "assistant", "content": r["judge_trace"]}],
     }
