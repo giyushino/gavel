@@ -37,7 +37,8 @@ JUDGE_USER_TMPL = (
 _SCORE_RE = re.compile(r"SCORE:\s*([0-9]*\.?[0-9]+)")
 
 
-def _parse_score(text: str) -> float:
+def parse_score(text: str) -> float:
+    """Pull the trailing `SCORE: <x>` off a judge trace, clamped to [0, 1]."""
     matches = _SCORE_RE.findall(text or "")
     if not matches:
         return 0.0
@@ -45,6 +46,30 @@ def _parse_score(text: str) -> float:
         return max(0.0, min(1.0, float(matches[-1])))
     except ValueError:
         return 0.0
+
+
+# Backwards-compatible private alias.
+_parse_score = parse_score
+
+
+def build_judge_messages(question: str, ground_truth: str, completion: str):
+    """The exact chat messages the teacher judge sees for one grading call.
+
+    Shared by the live reward function, the distillation SFT target, and the
+    audit so the distilled grader is a true drop-in: same prompt in, same
+    `SCORE:` format out.
+    """
+    return [
+        {"role": "system", "content": JUDGE_SYSTEM},
+        {
+            "role": "user",
+            "content": JUDGE_USER_TMPL.format(
+                question=question,
+                ground_truth=ground_truth,
+                completion=completion,
+            ),
+        },
+    ]
 
 
 class JudgeReward:
@@ -79,24 +104,14 @@ class JudgeReward:
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": JUDGE_SYSTEM},
-                    {
-                        "role": "user",
-                        "content": JUDGE_USER_TMPL.format(
-                            question=question,
-                            ground_truth=ground_truth,
-                            completion=completion,
-                        ),
-                    },
-                ],
+                messages=build_judge_messages(question, ground_truth, completion),
                 temperature=0.0,
                 max_tokens=self.max_tokens,
             )
             trace = resp.choices[0].message.content or ""
         except Exception as e:  # never let a judge hiccup kill a training step
             trace = f"[judge error] {e}"
-        return trace, _parse_score(trace)
+        return trace, parse_score(trace)
 
     def _log(self, rows):
         with self._lock, open(self.log_path, "a") as f:
