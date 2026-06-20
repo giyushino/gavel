@@ -131,11 +131,9 @@
     </div>
 
     <div class="section">
-      <div class="section-title">Dataset & Grader</div>
+      <div class="section-title">Dataset</div>
       <label>Dataset ID</label>
       <input id="dataset-id" value="BytedTsinghua-SIA/DAPO-Math-17k" oninput="debounceDatasetLookup()">
-      <label>Grader base model</label>
-      <input id="grader-base" value="Qwen/Qwen2.5-3B-Instruct">
 
       <div id="cache-banner">
         <div class="banner-title">✓ Cached grader found</div>
@@ -191,6 +189,8 @@
 
     <div class="section" id="sft-fields" style="display:none">
       <div class="section-title">SFT Config</div>
+      <label>Grader base model</label>
+      <input id="grader-base" value="Qwen/Qwen2.5-3B-Instruct">
       <label>Adapter output path</label>
       <input id="sft-out" value="runs/grader-sft">
       <label>Epochs</label>
@@ -361,7 +361,7 @@ function setJudgeMode(mode) {
 // ── grader server ──────────────────────────────────────────────────────────
 async function startGraderServer() {
   const did = document.getElementById('dataset-id').value.trim();
-  const base = document.getElementById('grader-base').value.trim();
+  const base = cachedEntry ? cachedEntry.grader_base : '';
   const gpu = document.getElementById('gpus').value.split(',')[0].trim();
   await fetch(`/api/grader-server/start?dataset_id=${encodeURIComponent(did)}&grader_base=${encodeURIComponent(base)}&gpu=${gpu}`, { method: 'POST' });
   pollGraderStatus();
@@ -440,10 +440,12 @@ async function launchRun() {
   const sysPrompt = document.getElementById('system-prompt').value.trim();
   const maxScore = parseFloat(document.getElementById('max-score').value) || 1;
 
+  const graderBaseEl = document.getElementById('grader-base');
+  const graderBase = cachedEntry ? cachedEntry.grader_base : (graderBaseEl ? graderBaseEl.value.trim() : '');
   const body = {
     run_type: runType,
     dataset_id: document.getElementById('dataset-id').value.trim(),
-    grader_base: document.getElementById('grader-base').value.trim(),
+    grader_base: graderBase,
     gpus: document.getElementById('gpus').value.trim(),
     num_gpus: parseInt(document.getElementById('num-gpus').value) || 4,
     judge_system_prompt: sysPrompt,
