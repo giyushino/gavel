@@ -1,22 +1,21 @@
 """Audit -- THE HEADLINE NUMBER. Does the distilled rubric grader work?
 
-Runs against the canonical pipeline: rubric traces logged by gavel/grpo/grader.py
-(0-9 score) -> LoRA grader distilled by gavel/sft/train.py. On the held-out split
-(same AUDIT_FRAC the SFT held out) we re-grade each solution with the distilled
-grader and report two things, neither of which depends on RL convergence:
+On the held-out split (same AUDIT_FRAC the SFT held out) we re-grade each
+solution with the distilled grader and report two things:
 
   1. FIDELITY -- does the cheap grader reproduce the expensive teacher judge?
      Pearson/Spearman + MAE between distilled score and the logged teacher score.
 
   2. GROUNDING -- does its score track REAL correctness? Spearman against
-     gavel/verify.is_correct (a symbolic answer-match, no LLM). This is NOT
-     circular: the rubric grades reasoning/hygiene/conciseness too, and the
-     mechanical check shares no machinery with the judge. We report the teacher's
-     own grounding alongside as the ceiling.
+     gavel/verify.is_correct (a symbolic answer-match, no LLM).
+
+If the audit passes the fidelity threshold (Pearson >= MIN_PEARSON), the adapter
+is automatically registered in the local cache so future training runs can use
+it instead of the frontier judge.
 
 Run (after gavel.sft.train has produced runs/grader-sft):
 
-    TRACE_LOG=gavel/grpo/traces.jsonl \
+    TRACE_LOG=runs/trl-grpo/traces.jsonl \
     SFT_OUT=runs/grader-sft \
     CUDA_VISIBLE_DEVICES=0 \
     python -m gavel.audit
@@ -24,12 +23,15 @@ Run (after gavel.sft.train has produced runs/grader-sft):
 
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from gavel.caching import register as cache_register
+from gavel.caching.cache import MIN_PEARSON
 from gavel.grader import MAX_SCORE, build_grader_messages, parse_score
 from gavel.sft.data import load_split
 from gavel.verify import is_correct
@@ -102,10 +104,12 @@ def _spearman(x, y):
 def main():
     base_id = os.environ.get("SFT_BASE", "Qwen/Qwen2.5-3B-Instruct")
     adapter = os.environ.get("SFT_OUT", "runs/grader-sft")
-    trace_log = os.environ.get("TRACE_LOG", "gavel/grpo/traces.jsonl")
+    trace_log = os.environ.get("TRACE_LOG", "runs/trl-grpo/traces.jsonl")
     audit_frac = float(os.environ.get("AUDIT_FRAC", 0.2))
     batch_size = int(os.environ.get("AUDIT_BATCH", 16))
     report_path = os.environ.get("AUDIT_REPORT", os.path.join(adapter, "audit.json"))
+    dataset_id = os.environ.get("DATASET_ID", "BytedTsinghua-SIA/DAPO-Math-17k")
+    cache_dir = Path(os.environ.get("CACHE_DIR", "cache"))
 
     rows = load_split(trace_log, "audit", audit_frac=audit_frac)
     if not rows:

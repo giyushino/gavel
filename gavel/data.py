@@ -14,13 +14,16 @@ Phase 0. The `question` and `ground_truth` columns ride along and are handed to
 the reward function as keyword args by the trainer.
 """
 
+import os
+
 from datasets import load_dataset
 
-DATASET_ID = "BytedTsinghua-SIA/DAPO-Math-17k"
+DEFAULT_DATASET_ID = "BytedTsinghua-SIA/DAPO-Math-17k"
 
 
 def build_dataset(tokenizer, n: int | None = None, enable_thinking: bool = False):
-    ds = load_dataset(DATASET_ID, split="train")
+    dataset_id = os.environ.get("DATASET_ID", DEFAULT_DATASET_ID)
+    ds = load_dataset(dataset_id, split="train")
     if n is not None:
         ds = ds.select(range(min(n, len(ds))))
 

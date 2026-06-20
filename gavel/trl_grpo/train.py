@@ -1,30 +1,32 @@
 """TRL GRPO + PEFT training with explicit rollout collection.
 
-Rough parity with gavel/train_grpo.py but structured as a package module and
-with a COLLECT_ONLY mode that just harvests judge-scored rollouts without doing
-any gradient updates.
+Run:
+    # Full GRPO training (frontier judge):
+    OPENAI_BASE_URL=https://api.deepseek.com/v1 OPENAI_API_KEY=<key> JUDGE_MODEL=deepseek-chat \\
+    CUDA_VISIBLE_DEVICES=1 python -m gavel.trl_grpo.train
 
-Run (judge server must be up — see scripts/serve_judge.sh):
-
-    # Full GRPO training:
-    OPENAI_BASE_URL=http://localhost:8000/v1 OPENAI_API_KEY=EMPTY JUDGE_MODEL=judge \\
+    # Full GRPO training (cached distilled grader — serve it first):
+    #   scripts/serve_grader.sh  (or the frontend will offer to do this)
+    OPENAI_BASE_URL=http://localhost:8001/v1 OPENAI_API_KEY=EMPTY JUDGE_MODEL=grader \\
     CUDA_VISIBLE_DEVICES=1 python -m gavel.trl_grpo.train
 
     # Rollout collection only (no gradient updates):
-    COLLECT_ONLY=1 \\
-    OPENAI_BASE_URL=http://localhost:8000/v1 OPENAI_API_KEY=EMPTY JUDGE_MODEL=judge \\
-    CUDA_VISIBLE_DEVICES=1 python -m gavel.trl_grpo.train
+    COLLECT_ONLY=1 ... python -m gavel.trl_grpo.train
 
-Knobs are env vars (see DEFAULTS below).
+Knobs are env vars (see individual defaults below).
+If OPENAI_BASE_URL is unset and a cached grader exists for the chosen dataset,
+the run will print the serve command and exit rather than silently calling nothing.
 """
 
 import os
+from pathlib import Path
 
 import torch
 from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import GRPOConfig
 
+from gavel.caching import lookup, traces_path
 from gavel.data import build_dataset
 from gavel.reward import JudgeReward
 from gavel.trl_grpo.rollout import RolloutCollector
@@ -124,6 +126,46 @@ def main():
     model_id = os.environ.get("POLICY_MODEL", "Qwen/Qwen3-4B")
     n_examples = os.environ.get("N_EXAMPLES")
     n_examples = int(n_examples) if n_examples else None
+    dataset_id = os.environ.get("DATASET_ID", "BytedTsinghua-SIA/DAPO-Math-17k")
+    grader_base = os.environ.get("SFT_BASE", "Qwen/Qwen2.5-3B-Instruct")
+    cache_dir = Path(os.environ.get("CACHE_DIR", "cache"))
+
+    # Point TRACE_LOG at the per-dataset cache slot so traces accumulate
+    # across runs and can be used for future SFT distillation.
+    default_trace_log = str(traces_path(dataset_id, grader_base, cache_dir))
+    if "TRACE_LOG" not in os.environ:
+        os.environ["TRACE_LOG"] = default_trace_log
+        Path(default_trace_log).parent.mkdir(parents=True, exist_ok=True)
+
+    # Check whether a distilled grader is already cached for this dataset.
+    cached = lookup(dataset_id, grader_base, cache_dir)
+    judge_url = os.environ.get("OPENAI_BASE_URL")
+
+    if cached:
+        print(f"\n[cache] distilled grader found for {dataset_id!r} (Pearson={cached.pearson:.3f})")
+        print(f"[cache] adapter: {cached.adapter_path}")
+        if not judge_url:
+            print(
+                "[cache] OPENAI_BASE_URL is not set — serve the cached grader first:\n"
+                f"        SFT_BASE={grader_base!r} \\\n"
+                f"        LORA_PATH={cached.adapter_path} \\\n"
+                "        bash scripts/serve_grader.sh\n"
+                "        then re-run with OPENAI_BASE_URL=http://localhost:8001/v1 JUDGE_MODEL=grader"
+            )
+            raise SystemExit(1)
+        print(f"[cache] using cached grader at {judge_url}\n")
+    else:
+        if not judge_url:
+            print(
+                "[cache] no cached grader found for this dataset yet.\n"
+                "[cache] OPENAI_BASE_URL is not set — set it to a frontier judge endpoint,\n"
+                "        e.g. OPENAI_BASE_URL=https://api.deepseek.com/v1 OPENAI_API_KEY=<key> JUDGE_MODEL=deepseek-chat\n"
+                f"[cache] Traces will be written to: {os.environ['TRACE_LOG']}\n"
+                "[cache] Once enough traces accumulate, run scripts/train_sft.sh to distill a grader."
+            )
+            raise SystemExit(1)
+        print(f"[cache] no cached grader for {dataset_id!r} — using frontier judge at {judge_url}")
+        print(f"[cache] traces → {os.environ['TRACE_LOG']}\n")
 
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     if tokenizer.pad_token is None:
