@@ -88,13 +88,39 @@ CANDIDATE_SOLUTION:
 """
 
 _SCORE_RE = re.compile(r"SCORE:\s*(\d+)")
+MAX_SCORE = 9  # 1+1+3+1+1+2, see rubric above
 
 
-def _parse_score(text: str) -> float:
+def parse_score(text: str) -> float:
+    """Pull the trailing `SCORE: <int>` off a rubric trace, clamped to [0, 9]."""
     m = _SCORE_RE.search(text or "")
     if not m:
         return 0.0
-    return float(min(int(m.group(1)), 9))
+    return float(min(int(m.group(1)), MAX_SCORE))
+
+
+# Backwards-compatible private alias.
+_parse_score = parse_score
+
+
+def build_grader_messages(problem, reference_answer, candidate_solution):
+    """The exact chat messages the rubric grader sees for one grading call.
+
+    Shared by the live verl reward (compute_score), the distillation SFT target
+    (gavel/sft/data.py), and the audit (gavel/audit.py) so the distilled grader
+    is a true drop-in: identical prompt in, identical `SCORE:` format out.
+    """
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": USER_TMPL.format(
+                problem=problem,
+                reference_answer=reference_answer,
+                candidate_solution=candidate_solution,
+            ),
+        },
+    ]
 
 
 def compute_score(data_source, solution_str, ground_truth, extra_info=None):
@@ -107,14 +133,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None):
         extra = {"reasoning": {"enabled": True}} if JUDGE_BACKEND == "openrouter" else {}
         resp = _get_client().chat.completions.create(
             model=JUDGE_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": USER_TMPL.format(
-                    problem=problem,
-                    reference_answer=gt_str,
-                    candidate_solution=solution_str,
-                )},
-            ],
+            messages=build_grader_messages(problem, gt_str, solution_str),
             temperature=0.0,
             max_tokens=2048,
             extra_body=extra,

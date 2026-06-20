@@ -1,10 +1,12 @@
 """Load and format rubric-grader traces for SFT.
 
 Each row written by gavel/grpo/grader.py looks like:
-    {data_source, ground_truth, solution, judge_trace, aspect_scores, score}
+    {data_source, problem, ground_truth, solution, judge_trace, score}
 
-We reconstruct the exact messages the rubric grader received (same SYSTEM_PROMPT
-and USER_TMPL), so the distilled grader sees identical inputs at inference time.
+We reconstruct the exact messages the rubric grader received (via the shared
+build_grader_messages), so the distilled grader sees identical inputs at
+inference time. Rows logged before `problem` was added fall back to "N/A",
+matching grader.py's own default when extra_info is absent.
 """
 
 import json
@@ -12,7 +14,7 @@ import os
 
 from datasets import Dataset
 
-from gavel.grpo.grader import SYSTEM_PROMPT, USER_TMPL
+from gavel.grpo.grader import build_grader_messages
 
 
 def load_traces(path: str, drop_errors: bool = True, dedup: bool = True):
@@ -67,16 +69,11 @@ def load_split(path: str, which: str, audit_frac: float = 0.2, **kw):
 def to_example(r: dict) -> dict:
     """Convert one trace row into the prompt/completion format TRL SFTTrainer expects."""
     return {
-        "prompt": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": USER_TMPL.format(
-                    ground_truth=r["ground_truth"],
-                    solution=r["solution"],
-                ),
-            },
-        ],
+        "prompt": build_grader_messages(
+            problem=r.get("problem", "N/A"),
+            reference_answer=r["ground_truth"],
+            candidate_solution=r["solution"],
+        ),
         "completion": [{"role": "assistant", "content": r["judge_trace"]}],
     }
 
