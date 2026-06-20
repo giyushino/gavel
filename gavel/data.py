@@ -26,6 +26,11 @@ def build_dataset(tokenizer, n: int | None = None, enable_thinking: bool = False
 
     def render(ex):
         messages = ex["prompt"]  # already [{"role": "user", "content": ...}]
+        messages = [
+            {**m, "content": m["content"] + "\n\nThink step by step and put your final answer in \\boxed{}."}
+            if m["role"] == "user" else m
+            for m in messages
+        ]
         prompt = tokenizer.apply_chat_template(
             messages,
             tokenize=False,
@@ -34,7 +39,7 @@ def build_dataset(tokenizer, n: int | None = None, enable_thinking: bool = False
         )
         return {
             "prompt": prompt,
-            "question": messages[0]["content"],
+            "question": ex["prompt"][0]["content"],  # original, without the appended instruction
             "ground_truth": ex["reward_model"]["ground_truth"],
         }
 

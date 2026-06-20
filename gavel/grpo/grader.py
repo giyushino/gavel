@@ -8,17 +8,31 @@ _client = None
 _log_lock = threading.Lock()
 TRACE_LOG = os.environ.get("TRACE_LOG", "traces.jsonl")
 
+JUDGE_BACKEND = os.environ.get("JUDGE_BACKEND", "local")  # "local" or "openrouter"
+
+
 def _get_client():
     global _client
     if _client is None:
-        _client = OpenAI(
-            base_url=os.environ.get("OPENAI_BASE_URL"),
-            api_key=os.environ.get("OPENAI_API_KEY", "EMPTY"),
-        )
+        if JUDGE_BACKEND == "openrouter":
+            _client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=os.environ["OPENROUTER_API_KEY"],
+                default_headers={"HTTP-Referer": "https://github.com/giyushino/gavel"},
+            )
+        else:
+            _client = OpenAI(
+                base_url=os.environ.get("OPENAI_BASE_URL"),
+                api_key=os.environ.get("OPENAI_API_KEY", "EMPTY"),
+            )
     return _client
 
 
-JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "judge")
+_DEFAULT_MODELS = {
+    "local": "judge",
+    "openrouter": "nvidia/nemotron-3-super-120b-a12b:free",
+}
+JUDGE_MODEL = os.environ.get("JUDGE_MODEL", _DEFAULT_MODELS[JUDGE_BACKEND])
 
 # Max possible score = 1+1+3+1+1+2 = 9
 SYSTEM_PROMPT = """\
@@ -90,6 +104,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None):
         problem = " ".join(m.get("content", "") for m in problem)
 
     try:
+        extra = {"reasoning": {"enabled": True}} if JUDGE_BACKEND == "openrouter" else {}
         resp = _get_client().chat.completions.create(
             model=JUDGE_MODEL,
             messages=[
@@ -102,6 +117,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None):
             ],
             temperature=0.0,
             max_tokens=2048,
+            extra_body=extra,
         )
         trace = resp.choices[0].message.content or ""
     except Exception as e:
