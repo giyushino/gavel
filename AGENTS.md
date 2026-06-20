@@ -1,5 +1,30 @@
 for the env, we're going to be using the conda env modelmerge for now
 
+## Venv patches
+
+Two files in `.venv` were patched to fix version incompatibilities. If the venv is rebuilt, reapply these (or just `uv pip install --upgrade prometheus-fastapi-instrumentator` for the second one).
+
+1. **`verl/workers/actor/dp_actor.py` line 119** — TensorDict no longer supports `in` checks directly. Changed:
+   ```python
+   # before
+   if "multi_modal_inputs" in micro_batch:
+   # after
+   if "multi_modal_inputs" in micro_batch.keys():
+   ```
+
+2. **`prometheus_fastapi_instrumentator/routing.py` line 55** — `_IncludedRouter` has no `path` attribute, crashing the vLLM health endpoint and all API requests. Changed:
+   ```python
+   # before
+   if match == Match.FULL:
+       route_name = route.path
+   # after
+   if match == Match.FULL:
+       if not hasattr(route, "path"):
+           continue
+       route_name = route.path
+   ```
+   Alternatively: `uv pip install --upgrade prometheus-fastapi-instrumentator`
+
 # DESIGN DOC
 # Understudy — Design Doc
 

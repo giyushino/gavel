@@ -4,22 +4,24 @@ version = "0.1.0"
 description = "gavel"
 authors = [{name="giyushino", email="allanzhang440@gmail.com" }]
 
-requires-python = ">=3.12,<3.14"
+requires-python = "==3.11.*"
 keywords = ["pytorch", "training"]
 
 # Pinned to the set validated on the original box (torch 2.8.0 + vllm 0.10.2 is a
 # known-good ABI pair). Minimal, but includes everything the code imports at
 # runtime: peft (LoRA) and openai (judge reward) are required.
 dependencies = [
-    "torch==2.8.0",
-    "transformers==4.56.1",
-    "trl==0.19.1",
-    "peft==0.19.1",
-    "accelerate==1.8.1",
-    "datasets==4.0.0",
+    "torch",
+    "transformers",
+    "trl",
+    "peft",
+    "accelerate",
+    "datasets",
     "tokenizers",
-    "openai>=1.99",
-    "vllm==0.10.2",
+    "openai",
+    "numpy>=2.0",
+    "vllm",
+    "verl",
 ]
 
 [build-system]
