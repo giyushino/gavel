@@ -1,22 +1,25 @@
-"""Audit -- THE HEADLINE NUMBER. Does the distilled grader track real truth?
+"""Audit -- THE HEADLINE NUMBER. Does the distilled rubric grader work?
 
-This number is what wins or loses the project, and it does NOT depend on RL
-convergence. On a held-out split of the trace log (completions the policy
-produced + the teacher's scores), we:
+Runs against the canonical pipeline: rubric traces logged by gavel/grpo/grader.py
+(0-9 score) -> LoRA grader distilled by gavel/sft/train.py. On the held-out split
+(same AUDIT_FRAC the SFT held out) we re-grade each solution with the distilled
+grader and report two things, neither of which depends on RL convergence:
 
-  1. re-grade each completion with the distilled LoRA grader (local generation),
-  2. compute an INDEPENDENT mechanical correctness for each (gavel/verify.py),
-  3. report correlation(grader_score, mechanical_truth) + agreement with teacher.
+  1. FIDELITY -- does the cheap grader reproduce the expensive teacher judge?
+     Pearson/Spearman + MAE between distilled score and the logged teacher score.
 
-Because step 2 shares no machinery with the LLM judge, a high correlation means
-the cheap grader tracks *real* ground truth, not just that it parrots the judge.
+  2. GROUNDING -- does its score track REAL correctness? Spearman against
+     gavel/verify.is_correct (a symbolic answer-match, no LLM). This is NOT
+     circular: the rubric grades reasoning/hygiene/conciseness too, and the
+     mechanical check shares no machinery with the judge. We report the teacher's
+     own grounding alongside as the ceiling.
 
-Run (after distill.py has produced a grader):
+Run (after gavel.sft.train has produced runs/grader-sft):
 
-    TRACE_LOG=runs/phase0-qwen3-4b/traces.jsonl \
-    GRADER_OUT=runs/phase0-qwen3-4b/grader \
-    CUDA_VISIBLE_DEVICES=1 \
-    conda run --no-capture-output -n modelmerge python -m gavel.audit
+    TRACE_LOG=gavel/grpo/traces.jsonl \
+    SFT_OUT=runs/grader-sft \
+    CUDA_VISIBLE_DEVICES=0 \
+    python -m gavel.audit
 """
 
 import json
@@ -27,13 +30,13 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from gavel.reward import build_judge_messages, parse_score
-from gavel.traces import load_split
+from gavel.grpo.grader import MAX_SCORE, build_grader_messages, parse_score
+from gavel.sft.data import load_split
 from gavel.verify import is_correct
 
 
 class LocalGrader:
-    """Loads base + LoRA adapter and grades completions with greedy generation."""
+    """Loads base + LoRA adapter and grades solutions with greedy generation."""
 
     def __init__(self, base_id, adapter_dir, max_new_tokens=512):
         self.tok = AutoTokenizer.from_pretrained(base_id)
@@ -52,7 +55,11 @@ class LocalGrader:
     def grade_batch(self, rows):
         prompts = [
             self.tok.apply_chat_template(
-                build_judge_messages(r["question"], r["ground_truth"], r["completion"]),
+                build_grader_messages(
+                    problem=r.get("problem", "N/A"),
+                    reference_answer=r["ground_truth"],
+                    candidate_solution=r["solution"],
+                ),
                 tokenize=False,
                 add_generation_prompt=True,
             )
@@ -67,8 +74,7 @@ class LocalGrader:
             pad_token_id=self.tok.pad_token_id,
         )
         gen = out[:, enc["input_ids"].shape[1]:]
-        traces = self.tok.batch_decode(gen, skip_special_tokens=True)
-        return traces
+        return self.tok.batch_decode(gen, skip_special_tokens=True)
 
 
 def _pearson(x, y):
@@ -83,7 +89,6 @@ def _rank(a):
     order = a.argsort()
     ranks = np.empty(len(a), float)
     ranks[order] = np.arange(len(a), dtype=float)
-    # average ranks for ties
     _, inv, counts = np.unique(a, return_inverse=True, return_counts=True)
     sums = np.zeros(len(counts))
     np.add.at(sums, inv, ranks)
@@ -95,9 +100,9 @@ def _spearman(x, y):
 
 
 def main():
-    base_id = os.environ.get("GRADER_BASE", "Qwen/Qwen2.5-3B-Instruct")
-    adapter = os.environ.get("GRADER_OUT", "runs/phase0-qwen3-4b/grader")
-    trace_log = os.environ.get("TRACE_LOG", "runs/phase0-qwen3-4b/traces.jsonl")
+    base_id = os.environ.get("SFT_BASE", "Qwen/Qwen2.5-3B-Instruct")
+    adapter = os.environ.get("SFT_OUT", "runs/grader-sft")
+    trace_log = os.environ.get("TRACE_LOG", "gavel/grpo/traces.jsonl")
     audit_frac = float(os.environ.get("AUDIT_FRAC", 0.2))
     batch_size = int(os.environ.get("AUDIT_BATCH", 16))
     report_path = os.environ.get("AUDIT_REPORT", os.path.join(adapter, "audit.json"))
@@ -109,36 +114,31 @@ def main():
 
     grader = LocalGrader(base_id, adapter)
 
-    grader_scores, traces = [], []
+    grader_scores = []
     for i in range(0, len(rows), batch_size):
         batch = rows[i:i + batch_size]
-        bt = grader.grade_batch(batch)
-        traces.extend(bt)
-        grader_scores.extend(parse_score(t) for t in bt)
+        grader_scores.extend(parse_score(t) for t in grader.grade_batch(batch))
         print(f"[audit] graded {min(i + batch_size, len(rows))}/{len(rows)}")
 
-    # Independent mechanical truth, and the teacher's own scores from the log.
-    mech = [is_correct(r["completion"], r["ground_truth"]) for r in rows]
-    teacher = [float(r.get("judge_score", 0.0)) for r in rows]
-
-    g_bin = [1.0 if s >= 0.5 else 0.0 for s in grader_scores]
-    t_bin = [1.0 if s >= 0.5 else 0.0 for s in teacher]
-
-    def acc(pred, truth):
-        return float(np.mean([p == t for p, t in zip(pred, truth)]))
+    teacher = [float(r.get("score", 0.0)) for r in rows]                 # 0-9, logged judge
+    mech = [is_correct(r["solution"], r["ground_truth"]) for r in rows]  # 0/1, independent
 
     report = {
         "n": len(rows),
-        "headline": {
-            "grader_vs_mechanical_pearson": _pearson(grader_scores, mech),
-            "grader_vs_mechanical_spearman": _spearman(grader_scores, mech),
-            "grader_accuracy_vs_mechanical": acc(g_bin, mech),
+        "fidelity": {  # distilled grader vs the expensive teacher it replaces
+            "pearson": _pearson(grader_scores, teacher),
+            "spearman": _spearman(grader_scores, teacher),
+            "mae_points": float(np.mean(np.abs(np.array(grader_scores) - np.array(teacher)))),
+            "scale": f"0-{MAX_SCORE}",
         },
-        "context": {
-            "teacher_accuracy_vs_mechanical": acc(t_bin, mech),
-            "grader_agreement_with_teacher": acc(g_bin, t_bin),
-            "grader_vs_teacher_pearson": _pearson(grader_scores, teacher),
+        "grounding": {  # does the score track REAL correctness (independent signal)?
+            "grader_spearman_vs_mechanical": _spearman(grader_scores, mech),
+            "teacher_spearman_vs_mechanical": _spearman(teacher, mech),
             "mechanical_positive_rate": float(np.mean(mech)),
+        },
+        "means": {
+            "grader": float(np.mean(grader_scores)),
+            "teacher": float(np.mean(teacher)),
         },
         "base": base_id,
         "adapter": adapter,
@@ -149,17 +149,19 @@ def main():
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2)
 
-    h, c = report["headline"], report["context"]
-    print("\n" + "=" * 60)
-    print("  GAVEL AUDIT  --  distilled grader vs. real ground truth")
-    print("=" * 60)
-    print(f"  held-out completions graded : {report['n']}")
-    print(f"  Pearson  (grader, truth)    : {h['grader_vs_mechanical_pearson']:.3f}")
-    print(f"  Spearman (grader, truth)    : {h['grader_vs_mechanical_spearman']:.3f}")
-    print(f"  grader  accuracy vs truth   : {h['grader_accuracy_vs_mechanical']:.1%}")
-    print(f"  teacher accuracy vs truth   : {c['teacher_accuracy_vs_mechanical']:.1%}  (ceiling)")
-    print(f"  grader agreement w/ teacher : {c['grader_agreement_with_teacher']:.1%}")
-    print("=" * 60)
+    f_, g_ = report["fidelity"], report["grounding"]
+    print("\n" + "=" * 62)
+    print("  GAVEL AUDIT  --  distilled rubric grader vs. teacher + truth")
+    print("=" * 62)
+    print(f"  held-out solutions graded   : {report['n']}")
+    print(f"  -- fidelity to teacher judge (the cheap grader's job) --")
+    print(f"  Pearson  (grader, teacher)  : {f_['pearson']:.3f}")
+    print(f"  Spearman (grader, teacher)  : {f_['spearman']:.3f}")
+    print(f"  mean abs error              : {f_['mae_points']:.2f} / {MAX_SCORE} pts")
+    print(f"  -- grounding in real correctness (not circular) --")
+    print(f"  Spearman grader  vs truth   : {g_['grader_spearman_vs_mechanical']:.3f}")
+    print(f"  Spearman teacher vs truth   : {g_['teacher_spearman_vs_mechanical']:.3f}  (ceiling)")
+    print("=" * 62)
     print(f"  full report -> {report_path}")
 
 

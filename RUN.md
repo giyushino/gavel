@@ -32,36 +32,39 @@ conda run --no-capture-output -n modelmerge python -m gavel.train_grpo
 To use a real teacher instead of the local judge, point `OPENAI_BASE_URL` /
 `OPENAI_API_KEY` / `JUDGE_MODEL` at OpenAI or OpenRouter — nothing else changes.
 
-## Phase 2 — distill the grader + the headline number
+## Phase 2 — distill the rubric grader + the headline number
 
-Step 1 above logs every grading call to `runs/phase0-qwen3-4b/traces.jsonl`.
-That free, labeled set is all Phase 2 needs — no judge server required.
+The canonical GRPO run (`gavel/grpo/`, verl + `grader.compute_score`) logs every
+rubric grading call to `gavel/grpo/traces.jsonl` (score 0–9). That free, labeled
+set is all Phase 2 needs — no judge server required.
 
 ```bash
-# 3. Distill a small LoRA grader from the logged traces (Qwen2.5-3B base).
+# 3. Distill a small LoRA grader from the logged rubric traces (Qwen2.5-3B base).
 #    Trains on the first 80% of traces; holds out the last 20% for audit.
-CUDA_VISIBLE_DEVICES=1 \
-TRACE_LOG=runs/phase0-qwen3-4b/traces.jsonl \
-GRADER_OUT=runs/phase0-qwen3-4b/grader \
-conda run --no-capture-output -n modelmerge python -m gavel.distill
+CUDA_VISIBLE_DEVICES=0 \
+TRACE_LOG=gavel/grpo/traces.jsonl \
+SFT_OUT=runs/grader-sft \
+python -m gavel.sft.train          # or: bash gavel/sft/train.sh
 
 # 4. Audit — THE HEADLINE NUMBER. Re-grade the held-out 20% with the distilled
-#    grader and correlate its scores with INDEPENDENT mechanical ground truth
-#    (gavel/verify.py executes the answer-match, no LLM involved).
-CUDA_VISIBLE_DEVICES=1 \
-TRACE_LOG=runs/phase0-qwen3-4b/traces.jsonl \
-GRADER_OUT=runs/phase0-qwen3-4b/grader \
-conda run --no-capture-output -n modelmerge python -m gavel.audit
+#    grader. Reports (a) FIDELITY to the teacher judge it replaces and
+#    (b) GROUNDING vs INDEPENDENT mechanical correctness (gavel/verify.py runs
+#    the symbolic answer-match, no LLM) with the teacher's grounding as ceiling.
+CUDA_VISIBLE_DEVICES=0 \
+TRACE_LOG=gavel/grpo/traces.jsonl \
+SFT_OUT=runs/grader-sft \
+python -m gavel.audit
 ```
 
-`audit.py` prints the correlation/accuracy table and writes the full report to
-`runs/phase0-qwen3-4b/grader/audit.json`. This number does **not** depend on RL
-convergence — it's the guaranteed deliverable.
+`audit.py` prints the fidelity/grounding table and writes the full report to
+`runs/grader-sft/audit.json`. This number does **not** depend on RL convergence —
+it's the guaranteed deliverable.
 
 ### Phase 2 knobs (env vars)
-- distill: `GRADER_BASE`, `GRADER_OUT`, `EPOCHS`, `LR`, `MAX_LEN`, `LORA_R`,
-  `BATCH_SIZE`, `GRAD_ACCUM`, `AUDIT_FRAC`.
-- audit: `GRADER_BASE`, `GRADER_OUT`, `AUDIT_FRAC`, `AUDIT_BATCH`, `AUDIT_REPORT`.
+- distill (`gavel.sft.train`): `SFT_BASE`, `SFT_OUT`, `EPOCHS`, `LR`, `MAX_LEN`,
+  `LORA_R`, `LORA_ALPHA`, `BATCH_SIZE`, `GRAD_ACCUM`, `AUDIT_FRAC`, `USE_WANDB`.
+- audit (`gavel.audit`): `SFT_BASE`, `SFT_OUT`, `AUDIT_FRAC`, `AUDIT_BATCH`,
+  `AUDIT_REPORT`.
 
 `AUDIT_FRAC` (default 0.2) must match between the two — it's the deterministic,
 position-based train/held-out split, so the grader is never audited on traces it
