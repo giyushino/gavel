@@ -14,7 +14,7 @@ import os
 
 from datasets import Dataset
 
-from gavel.grpo.grader import build_grader_messages
+from gavel.grader import build_grader_messages
 
 
 def load_traces(path: str, drop_errors: bool = True, dedup: bool = True):

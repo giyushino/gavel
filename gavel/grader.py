@@ -1,3 +1,10 @@
+"""Rubric grader: LLM-based judge that produces a 0-9 structured score.
+
+Used by the SFT distillation pipeline (gavel/sft/) and the audit (gavel/audit.py).
+The distilled grader is meant to be a drop-in for the expensive teacher: same
+prompt in, same SCORE: format out, at a fraction of the cost.
+"""
+
 import os
 import re
 import json
@@ -99,16 +106,15 @@ def parse_score(text: str) -> float:
     return float(min(int(m.group(1)), MAX_SCORE))
 
 
-# Backwards-compatible private alias.
 _parse_score = parse_score
 
 
 def build_grader_messages(problem, reference_answer, candidate_solution):
     """The exact chat messages the rubric grader sees for one grading call.
 
-    Shared by the live verl reward (compute_score), the distillation SFT target
-    (gavel/sft/data.py), and the audit (gavel/audit.py) so the distilled grader
-    is a true drop-in: identical prompt in, identical `SCORE:` format out.
+    Shared by the SFT distillation target (gavel/sft/data.py) and the audit
+    (gavel/audit.py) so the distilled grader is a true drop-in: identical
+    prompt in, identical `SCORE:` format out.
     """
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -123,11 +129,9 @@ def build_grader_messages(problem, reference_answer, candidate_solution):
     ]
 
 
-def compute_score(data_source, solution_str, ground_truth, extra_info=None):
+def compute_score(problem: str, solution_str: str, ground_truth: str) -> float:
+    """Grade one solution; log trace to TRACE_LOG. Returns score in [0, 9]."""
     gt_str = json.dumps(ground_truth) if isinstance(ground_truth, dict) else str(ground_truth)
-    problem = (extra_info or {}).get("problem", (extra_info or {}).get("prompt", "N/A"))
-    if isinstance(problem, list):  # verl passes prompt as chat message list
-        problem = " ".join(m.get("content", "") for m in problem)
 
     try:
         extra = {"reasoning": {"enabled": True}} if JUDGE_BACKEND == "openrouter" else {}
@@ -143,12 +147,9 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None):
         trace = f"[judge error] {e}"
 
     score = _parse_score(trace)
-    print(f"score={score}/9\n{solution_str=}\ntrace={trace}")
-    print("===========")
 
     with _log_lock, open(TRACE_LOG, "a") as f:
         f.write(json.dumps({
-            "data_source": data_source,
             "problem": problem,
             "ground_truth": gt_str,
             "solution": solution_str,

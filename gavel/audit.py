@@ -30,7 +30,7 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from gavel.grpo.grader import MAX_SCORE, build_grader_messages, parse_score
+from gavel.grader import MAX_SCORE, build_grader_messages, parse_score
 from gavel.sft.data import load_split
 from gavel.verify import is_correct
 

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+# Sampling knobs
+TEMPERATURE=${TEMPERATURE:-0.7}
+NUM_GENERATIONS=${NUM_GENERATIONS:-4}
+MAX_PROMPT_LEN=${MAX_PROMPT_LEN:-1024}
+MAX_COMPLETION_LEN=${MAX_COMPLETION_LEN:-1024}
+
+CUDA_VISIBLE_DEVICES=1 \
+OPENAI_BASE_URL=http://localhost:8000/v1 \
+OPENAI_API_KEY=EMPTY \
+JUDGE_MODEL=judge \
+MAX_STEPS=3 \
+BATCH_SIZE=2 \
+N_EXAMPLES=32 \
+TEMPERATURE="$TEMPERATURE" \
+NUM_GENERATIONS="$NUM_GENERATIONS" \
+MAX_PROMPT_LEN="$MAX_PROMPT_LEN" \
+MAX_COMPLETION_LEN="$MAX_COMPLETION_LEN" \
+uv run accelerate launch --num_processes 1 --mixed_precision bf16 -m gavel.trl_grpo.train

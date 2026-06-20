@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ML training artifacts
+runs/
+outputs/
+wandb/
+*.jsonl
+*.parquet

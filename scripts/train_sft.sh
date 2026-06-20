@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$( cd "$SCRIPT_DIR/../../.." && pwd )"
+cd "$(dirname "$0")/.."
 
-TRACE_LOG="${TRACE_LOG:-$SCRIPT_DIR/../grpo/traces.jsonl}"
-SFT_OUT="${SFT_OUT:-$PROJECT_ROOT/runs/grader-sft}"
+TRACE_LOG="${TRACE_LOG:-runs/trl-grpo/traces.jsonl}"
+SFT_OUT="${SFT_OUT:-runs/grader-sft}"
 SFT_BASE="${SFT_BASE:-Qwen/Qwen2.5-3B-Instruct}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 AUDIT_FRAC="${AUDIT_FRAC:-0.2}"
@@ -21,4 +20,4 @@ SFT_OUT="$SFT_OUT" \
 SFT_BASE="$SFT_BASE" \
 AUDIT_FRAC="$AUDIT_FRAC" \
 CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES" \
-python -m gavel.sft.train "$@"
+uv run python -m gavel.sft.train "$@"
