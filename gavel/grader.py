@@ -98,10 +98,20 @@ _SCORE_RE = re.compile(r"SCORE:\s*(\d+)")
 MAX_SCORE = 9  # 1+1+3+1+1+2, see rubric above
 
 
+_TOTAL_RE = re.compile(r"<total>\s*(\d+)\s*</total>")
+
+
 def parse_score(text: str) -> float:
-    """Pull the trailing `SCORE: <int>` off a rubric trace, clamped to [0, 9]."""
-    m = _SCORE_RE.search(text or "")
-    if not m:
+    """Extract the grade. Tries XML <total>N</total> first, then `SCORE: <int>`.
+
+    Supports both rubric output formats: the SCORE-line rubric and the XML
+    <grade> rubric. Clamped to [0, MAX_SCORE].
+    """
+    text = text or ""
+    m = _TOTAL_RE.search(text)
+    if m is None:
+        m = _SCORE_RE.search(text)
+    if m is None:
         return 0.0
     return float(min(int(m.group(1)), MAX_SCORE))
 

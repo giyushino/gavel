@@ -443,7 +443,7 @@
     <div class="section" id="sft-fields" style="display:none">
       <div class="section-title">SFT Config</div>
       <label>Grader base model</label>
-      <input id="grader-base" value="Qwen/Qwen2.5-3B-Instruct">
+      <input id="grader-base" value="Qwen/Qwen3-4B-Instruct-2507">
       <label>Adapter output path</label>
       <input id="sft-out" value="runs/grader-sft">
       <label>Epochs</label>
@@ -574,12 +574,7 @@ async function lookupDataset() {
 
 function auditPearson(entry) {
   if (!entry) return null;
-  const a = entry.audit || entry.audit_report;
-  if (!a) return null;
-  if (a.context && a.context.grader_vs_teacher_pearson != null) return a.context.grader_vs_teacher_pearson;
-  if (a.fidelity && a.fidelity.pearson != null) return a.fidelity.pearson;
-  if (a.headline && a.headline.grader_vs_mechanical_pearson != null) return a.headline.grader_vs_mechanical_pearson;
-  return null;
+  return entry.pearson ?? null;
 }
 
 function showCacheBanner(entry) {
@@ -620,7 +615,7 @@ function setJudgeMode(mode) {
 async function startGraderServer() {
   const did = document.getElementById('dataset-id').value.trim();
   const base = cachedEntry ? cachedEntry.grader_base : '';
-  const gpu = document.getElementById('gpus').value.split(',')[0].trim();
+  const gpu = '7';
   await fetch(`/api/grader-server/start?dataset_id=${encodeURIComponent(did)}&grader_base=${encodeURIComponent(base)}&gpu=${gpu}`, { method: 'POST' });
   pollGraderStatus();
 }

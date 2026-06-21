@@ -105,7 +105,7 @@ def train(model_id: str, tokenizer, dataset, judge: JudgeReward) -> None:
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
         use_vllm=env_flag("USE_VLLM", "0"),
-        log_completions=True,
+        log_completions=False,
         report_to=["wandb"] if env_flag("USE_WANDB", "0") else [],
     )
 
@@ -127,7 +127,7 @@ def main():
     n_examples = os.environ.get("N_EXAMPLES")
     n_examples = int(n_examples) if n_examples else None
     dataset_id = os.environ.get("DATASET_ID", "BytedTsinghua-SIA/DAPO-Math-17k")
-    grader_base = os.environ.get("SFT_BASE", "Qwen/Qwen2.5-3B-Instruct")
+    grader_base = os.environ.get("SFT_BASE", "Qwen/Qwen3-4B-Instruct-2507")
     cache_dir = Path(os.environ.get("CACHE_DIR", "cache"))
 
     # Point TRACE_LOG at the per-dataset cache slot so traces accumulate
@@ -173,26 +173,6 @@ def main():
     tokenizer.padding_side = "left"
 
     dataset = build_dataset(tokenizer, n=n_examples, enable_thinking=False)
-
-    first = dataset[0]
-    toks = tokenizer(first["prompt"], return_tensors="pt")
-    print(f"\n[debug] tokenizer pad={tokenizer.pad_token!r}({tokenizer.pad_token_id}) "
-          f"eos={tokenizer.eos_token!r}({tokenizer.eos_token_id})")
-    print(f"[debug] first prompt token count: {toks['input_ids'].shape[1]}")
-    print(f"[debug] prompt tail (last 120 chars): {repr(first['prompt'][-120:])}")
-
-    # Quick direct-generation smoke-test: if this produces garbage, the issue is
-    # in the model/tokenizer, not in TRL. Runs on CPU-offloaded model, cheap.
-    print("[debug] running direct greedy generation (20 tokens)…")
-    _m = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, device_map="auto")
-    _in = tokenizer(first["prompt"], return_tensors="pt").to(_m.device)
-    with torch.no_grad():
-        _out = _m.generate(**_in, max_new_tokens=20, do_sample=False)
-    _completion = tokenizer.decode(_out[0][_in["input_ids"].shape[1]:], skip_special_tokens=True)
-    print(f"[debug] direct generation: {repr(_completion)}")
-    del _m, _in, _out
-    torch.cuda.empty_cache()
-    print()
 
     # JudgeReward logs traces to TRACE_LOG; in collect-only mode we also write
     # structured rollouts (with prompt) to ROLLOUT_LOG via RolloutCollector.

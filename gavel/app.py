@@ -29,7 +29,7 @@ GRADER_PORT = 8001
 class LaunchRequest(BaseModel):
     run_type: str
     dataset_id: str = "BytedTsinghua-SIA/DAPO-Math-17k"
-    grader_base: str = "Qwen/Qwen2.5-3B-Instruct"
+    grader_base: str = "Qwen/Qwen3-4B-Instruct-2507"
     gpus: str = "0,1,2,3"
     judge_url: str = ""
     judge_api_key: str = ""
@@ -279,7 +279,7 @@ async def grader_server_status():
 
 
 @app.post("/api/grader-server/start")
-async def grader_server_start(dataset_id: str, grader_base: str, gpu: str = "0"):
+async def grader_server_start(dataset_id: str, grader_base: str, gpu: str = "7"):
     global _grader_server, _grader_lines
     if _grader_server is not None and _grader_server.returncode is None:
         return {"status": "already_running", "port": GRADER_PORT}
@@ -290,6 +290,9 @@ async def grader_server_start(dataset_id: str, grader_base: str, gpu: str = "0")
         raise HTTPException(404, "no cached grader found for this dataset + base model")
 
     adapter_path = BASE_DIR / "cache" / key / "adapter"
+    if not adapter_path.exists():
+        # fallback to runs/grader-sft
+        adapter_path = BASE_DIR / "runs" / "grader-sft"
     if not adapter_path.exists():
         raise HTTPException(400, f"adapter not found at {adapter_path}")
 

@@ -40,7 +40,7 @@ from gavel.verify import is_correct
 class LocalGrader:
     """Loads base + LoRA adapter and grades solutions with greedy generation."""
 
-    def __init__(self, base_id, adapter_dir, max_new_tokens=512):
+    def __init__(self, base_id, adapter_dir, max_new_tokens=768):
         self.tok = AutoTokenizer.from_pretrained(base_id)
         if self.tok.pad_token is None:
             self.tok.pad_token = self.tok.eos_token
@@ -102,7 +102,7 @@ def _spearman(x, y):
 
 
 def main():
-    base_id = os.environ.get("SFT_BASE", "Qwen/Qwen2.5-3B-Instruct")
+    base_id = os.environ.get("SFT_BASE", "Qwen/Qwen3-4B-Instruct-2507")
     adapter = os.environ.get("SFT_OUT", "runs/grader-sft")
     trace_log = os.environ.get("TRACE_LOG", "runs/trl-grpo/traces.jsonl")
     audit_frac = float(os.environ.get("AUDIT_FRAC", 0.2))

@@ -4,9 +4,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BASE_MODEL=Qwen/Qwen3-4B-Instruct-2507
-LORA_PATH=runs/grader-sft
+LORA_PATH=cache/BytedTsinghua-SIA_DAPO-Math-17k--Qwen_Qwen3-4B-Instruct-2507/adapter
 SERVED_NAME=grader
-GPU=1
+GPU=7
 PORT=8001
 
 CUDA_VISIBLE_DEVICES="$GPU" \

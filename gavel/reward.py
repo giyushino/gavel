@@ -12,6 +12,7 @@ grading is a sunk cost we are paying anyway, so we capture it.
 
 import json
 import os
+import random
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -45,17 +46,15 @@ _SCORE_RE = re.compile(r"SCORE:\s*([0-9]*\.?[0-9]+)")
 
 
 def parse_score(text: str) -> float:
-    """Extract score from XML <total> or fallback SCORE: format, normalize to [0, 1]."""
-    # prefer XML format
+    """Extract score from XML <total> or fallback SCORE: format. Returns raw value."""
     m = _XML_TOTAL_RE.search(text or "")
     if m:
-        return max(0.0, min(1.0, float(m.group(1)) / _JUDGE_MAX_SCORE))
-    # fallback: plain SCORE: <x>
+        return float(m.group(1))
     matches = _SCORE_RE.findall(text or "")
     if not matches:
         return 0.0
     try:
-        return max(0.0, min(1.0, float(matches[-1]) / _JUDGE_MAX_SCORE))
+        return float(matches[-1])
     except ValueError:
         return 0.0
 
@@ -100,7 +99,8 @@ class JudgeReward:
         api_key: str | None = None,
         log_path: str | None = None,
         max_workers: int = 32,
-        max_tokens: int = 512,
+        max_tokens: int = 2048,
+        log_samples: int | None = None,
     ):
         self.model = model or os.environ.get("JUDGE_MODEL", "judge")
         self.client = OpenAI(
@@ -111,6 +111,8 @@ class JudgeReward:
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.max_tokens = max_tokens
         self._lock = threading.Lock()
+        self._step = 0
+        self.log_samples = log_samples if log_samples is not None else int(os.environ.get("LOG_SAMPLES", 2))
 
     def _grade_one(self, question: str, completion: str, ground_truth: str):
         try:
@@ -152,4 +154,18 @@ class JudgeReward:
             }
             for i in range(n)
         )
+
+        self._step += 1
+        if self.log_samples > 0:
+            indices = random.sample(range(n), min(self.log_samples, n))
+            sep = "─" * 60
+            print(f"\n{sep}  step {self._step}  {sep}")
+            for idx in indices:
+                trace, score = results[idx]
+                print(f"Q:\n{questions[idx]}")
+                print(f"\nANSWER:\n{completions[idx]}")
+                print(f"\nGRADE:\n{trace}")
+                print(f"\nSCORE: {score:.3f}")
+                print()
+
         return scores

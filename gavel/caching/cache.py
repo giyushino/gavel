@@ -53,13 +53,9 @@ class CachedGrader:
     dataset_id: str
     grader_base: str
     adapter_path: Path
-    audit: dict          # full audit report from gavel.audit
+    pearson: float
     trace_count: int
     registered_at: str
-
-    @property
-    def pearson(self) -> float:
-        return self.audit.get("fidelity", {}).get("pearson", 0.0)
 
     def is_trustworthy(self, min_pearson: float = MIN_PEARSON) -> bool:
         return self.pearson >= min_pearson
@@ -91,7 +87,7 @@ def lookup(
         dataset_id=dataset_id,
         grader_base=grader_base,
         adapter_path=adapter,
-        audit=entry.get("audit", {}),
+        pearson=entry.get("pearson", 0.0),
         trace_count=entry.get("trace_count", 0),
         registered_at=entry.get("registered_at", ""),
     )
@@ -129,10 +125,14 @@ def register(
             trace_count = sum(1 for line in f if line.strip())
 
     index = _read_index(cache_dir)
+    pearson = (
+        audit_report.get("fidelity", {}).get("pearson")
+        or audit_report.get("context", {}).get("grader_vs_teacher_pearson", 0.0)
+    )
     index[key] = {
         "dataset_id": dataset_id,
         "grader_base": grader_base,
-        "audit": audit_report,
+        "pearson": pearson,
         "trace_count": trace_count,
         "registered_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -142,7 +142,7 @@ def register(
         dataset_id=dataset_id,
         grader_base=grader_base,
         adapter_path=dest,
-        audit=audit_report,
+        pearson=pearson,
         trace_count=trace_count,
         registered_at=index[key]["registered_at"],
     )
